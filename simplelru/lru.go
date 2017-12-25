@@ -5,12 +5,18 @@ import (
 	"errors"
 )
 
+var (
+	ErrTooLargeWeight = errors.New("The new added entry's weight exceeds the lru size")
+	ErrInvalidLRUSize = errors.New("Must provide a positive size")
+)
+
 // EvictCallback is used to get a callback when a cache entry is evicted
 type EvictCallback func(key interface{}, value interface{})
 
 // LRU implements a non-thread safe fixed size LRU cache
 type LRU struct {
 	size      int
+	used      int
 	evictList *list.List
 	items     map[interface{}]*list.Element
 	onEvict   EvictCallback
@@ -18,14 +24,20 @@ type LRU struct {
 
 // entry is used to hold a value in the evictList
 type entry struct {
-	key   interface{}
-	value interface{}
+	key    interface{}
+	value  interface{}
+	weight int
+}
+
+// option is used to specify options for adding the new entry.
+type Option struct {
+	Weight int // The weight of the added entry
 }
 
 // NewLRU constructs an LRU of the given size
 func NewLRU(size int, onEvict EvictCallback) (*LRU, error) {
 	if size <= 0 {
-		return nil, errors.New("Must provide a positive size")
+		return nil, ErrInvalidLRUSize
 	}
 	c := &LRU{
 		size:      size,
@@ -45,28 +57,44 @@ func (c *LRU) Purge() {
 		delete(c.items, k)
 	}
 	c.evictList.Init()
+	c.used = 0
 }
 
 // Add adds a value to the cache.  Returns true if an eviction occurred.
-func (c *LRU) Add(key, value interface{}) bool {
+func (c *LRU) Add(key, value interface{}, opt *Option) (error, bool) {
 	// Check for existing item
+	var weight int = 1
+	if opt != nil && opt.Weight != 0 {
+		weight = opt.Weight
+	}
+
+	if weight > c.size {
+		return ErrTooLargeWeight, false
+	}
 	if ent, ok := c.items[key]; ok {
 		c.evictList.MoveToFront(ent)
-		ent.Value.(*entry).value = value
-		return false
+		original := ent.Value.(*entry)
+		c.used = c.used - original.weight + weight
+		ent.Value.(*entry).value, ent.Value.(*entry).weight = value, weight
+		evict := c.used > c.size
+		if evict {
+			c.removeOldest()
+		}
+		return nil, evict
 	}
 
 	// Add new item
-	ent := &entry{key, value}
+	ent := &entry{key, value, weight}
 	entry := c.evictList.PushFront(ent)
 	c.items[key] = entry
+	c.used += ent.weight
 
-	evict := c.evictList.Len() > c.size
+	evict := c.used > c.size
 	// Verify size not exceeded
 	if evict {
 		c.removeOldest()
 	}
-	return evict
+	return nil, evict
 }
 
 // Get looks up a key's value from the cache.
@@ -143,9 +171,11 @@ func (c *LRU) Len() int {
 
 // removeOldest removes the oldest item from the cache.
 func (c *LRU) removeOldest() {
-	ent := c.evictList.Back()
-	if ent != nil {
-		c.removeElement(ent)
+	for c.used > c.size {
+		ent := c.evictList.Back()
+		if ent != nil {
+			c.removeElement(ent)
+		}
 	}
 }
 
@@ -157,4 +187,5 @@ func (c *LRU) removeElement(e *list.Element) {
 	if c.onEvict != nil {
 		c.onEvict(kv.key, kv.value)
 	}
+	c.used -= kv.weight
 }

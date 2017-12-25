@@ -143,11 +143,12 @@ func TestLRUAdd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
-
-	if l.Add(1, 1) == true || evictCounter != 0 {
+	_, evict := l.Add(1, 1)
+	if evict == true || evictCounter != 0 {
 		t.Errorf("should not have an eviction")
 	}
-	if l.Add(2, 2) == false || evictCounter != 1 {
+	_, evict = l.Add(2, 2)
+	if evict == false || evictCounter != 1 {
 		t.Errorf("should have an eviction")
 	}
 }
@@ -168,36 +169,6 @@ func TestLRUContains(t *testing.T) {
 	l.Add(3, 3)
 	if l.Contains(1) {
 		t.Errorf("Contains should not have updated recent-ness of 1")
-	}
-}
-
-// test that Contains doesn't update recent-ness
-func TestLRUContainsOrAdd(t *testing.T) {
-	l, err := New(2)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	l.Add(1, 1)
-	l.Add(2, 2)
-	contains, evict := l.ContainsOrAdd(1, 1)
-	if !contains {
-		t.Errorf("1 should be contained")
-	}
-	if evict {
-		t.Errorf("nothing should be evicted here")
-	}
-
-	l.Add(3, 3)
-	contains, evict = l.ContainsOrAdd(1, 1)
-	if contains {
-		t.Errorf("1 should not have been contained")
-	}
-	if !evict {
-		t.Errorf("an eviction should have occurred")
-	}
-	if !l.Contains(1) {
-		t.Errorf("now 1 should be contained")
 	}
 }
 

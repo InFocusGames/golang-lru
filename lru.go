@@ -4,9 +4,8 @@
 package lru
 
 import (
+	"github.com/hyperchain/golang-lru/simplelru"
 	"sync"
-
-	"github.com/hashicorp/golang-lru/simplelru"
 )
 
 // Cache is a thread-safe fixed size LRU cache.
@@ -41,10 +40,17 @@ func (c *Cache) Purge() {
 }
 
 // Add adds a value to the cache.  Returns true if an eviction occurred.
-func (c *Cache) Add(key, value interface{}) bool {
+func (c *Cache) Add(key, value interface{}) (error, bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	return c.lru.Add(key, value)
+	return c.lru.Add(key, value, nil)
+}
+
+// Add adds a value to the cache.  Returns true if an eviction occurred.
+func (c *Cache) AddWithWeight(key, value interface{}, weight int) (error, bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.lru.Add(key, value, &simplelru.Option{Weight: weight})
 }
 
 // Get looks up a key's value from the cache.
@@ -68,21 +74,6 @@ func (c *Cache) Peek(key interface{}) (interface{}, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 	return c.lru.Peek(key)
-}
-
-// ContainsOrAdd checks if a key is in the cache  without updating the
-// recent-ness or deleting it for being stale,  and if not, adds the value.
-// Returns whether found and whether an eviction occurred.
-func (c *Cache) ContainsOrAdd(key, value interface{}) (ok, evict bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	if c.lru.Contains(key) {
-		return true, false
-	} else {
-		evict := c.lru.Add(key, value)
-		return false, evict
-	}
 }
 
 // Remove removes the provided key from the cache.
